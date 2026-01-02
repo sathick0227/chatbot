@@ -107,12 +107,14 @@ def answer_for(question: str):
 
 # ✅ Support both: / and /api
 @app.get("/")
-@app.get("/api")
 def home():
     return {"status": "ok", "hint": "POST /api/chat with JSON {question: '...'}"}
+@app.get("/api")
+def chat(req: ChatRequest):
+    return answer_for(req.question)
+
 
 # ✅ Support both: /chat and /api/chat
 @app.post("/chat")
 @app.post("/api/chat")
-def chat(req: ChatRequest):
-    return answer_for(req.question)
+
