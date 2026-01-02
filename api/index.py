@@ -95,6 +95,10 @@ def detect_intent(text: str):
 class ChatRequest(BaseModel):
     question: str
 
+@app.get("/")
+def root():
+    return {"status": "ok", "usage": "POST /api/chat"}
+
 @app.post("/chat")
 def chat(req: ChatRequest):
     user_q = (req.question or "").strip()
