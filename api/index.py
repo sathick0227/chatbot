@@ -16,7 +16,7 @@ app.add_middleware(
 
 # ✅ Load data.json from repo root
 BASE_DIR = os.path.dirname(__file__)
-DATA_PATH = os.path.join(BASE_DIR, ".", "data.json")
+DATA_PATH = os.path.join(BASE_DIR, "..", "data.json")
 
 with open(DATA_PATH, "r", encoding="utf-8") as f:
     data = json.load(f)
@@ -82,9 +82,9 @@ def detect_intent(q: str):
 class ChatRequest(BaseModel):
     question: str
 
-@app.get("/")
-def health():
-    return {"status": "ok", "usage": "POST /api/chat with {question}"}
+# @app.get("/")
+# def health():
+#     return {"status": "ok", "usage": "POST /api/chat with {question}"}
 
 @app.post("/")
 def chat(req: ChatRequest):
