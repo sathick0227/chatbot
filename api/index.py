@@ -4,17 +4,17 @@ from pydantic import BaseModel
 from rapidfuzz import fuzz, process
 import json, os, re
 
-app = FastAPI(title="Portfolio Chatbot (Vercel Compatible)")
+app = FastAPI(title="Portfolio Chatbot")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # set your vercel domain later
+    allow_origins=["*"],  # in prod put your domain
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Load data.json from repo root
+# ✅ Load data.json from repo root
 BASE_DIR = os.path.dirname(__file__)
 DATA_PATH = os.path.join(BASE_DIR, "..", "data.json")
 
@@ -23,9 +23,6 @@ with open(DATA_PATH, "r", encoding="utf-8") as f:
 
 questions = data["questions"]
 answers = data["answers"]
-
-if len(questions) != len(answers):
-    raise ValueError("Questions and answers count must match")
 
 SKILL_ANSWERS = {
     "react": "Yes. He has strong React/Next.js experience (5+ years), building scalable web apps including banking and enterprise systems.",
@@ -69,51 +66,42 @@ INTENT_RULES = [
     {"patterns": [r"\bperformance\b", r"\boptimi[sz]e\b", r"\blazy\b", r"\bcaching\b", r"\bprofiling\b"], "skill_key": "performance"},
 ]
 
-def normalize_text(text: str) -> str:
-    text = (text or "").lower().strip()
-    text = re.sub(r"\s+", " ", text)
-    return text
 
-def detect_intent(text: str):
-    t = normalize_text(text)
+def norm(t: str) -> str:
+    t = (t or "").lower().strip()
+    t = re.sub(r"\s+", " ", t)
+    return t
+
+def detect_intent(q: str):
+    q = norm(q)
     for rule in INTENT_RULES:
-        if any(re.search(p, t) for p in rule["patterns"]):
+        if any(re.search(p, q) for p in rule["patterns"]):
             return rule
     return None
 
 class ChatRequest(BaseModel):
     question: str
 
-def answer_for(question: str):
-    q = normalize_text(question)
+@app.get("/")
+def health():
+    return {"status": "ok", "usage": "POST /api/chat with {question}"}
 
+@app.post("/")
+def chat(req: ChatRequest):
+    q = req.question.strip()
+
+    # 1) Intent first
     rule = detect_intent(q)
     if rule:
         if "skill_key" in rule:
             return {"answer": SKILL_ANSWERS.get(rule["skill_key"], "Yes, he has experience in that area.")}
-
         idx = rule.get("answer_index")
         if idx is not None and 0 <= idx < len(answers):
             return {"answer": answers[idx]}
 
-    # fuzzy fallback
+    # 2) Fuzzy fallback
     best = process.extractOne(q, questions, scorer=fuzz.WRatio)
-    if best:
-        _, score, idx = best
-        if score >= 78:
-            return {"answer": answers[idx]}
+    if best and best[1] >= 78:
+        return {"answer": answers[best[2]]}
 
     return {"answer": "I don't have an answer for that yet. Please ask about my profile, skills, projects, or contact details."}
-
-# ✅ Support both: / and /api
-@app.get("/")
-@app.get("/api")
-def home():
-    return {"status": "ok", "hint": "POST /api/chat with JSON {question: '...'}"}
-
-# ✅ Support both: /chat and /api/chat
-
-@app.post("/chat")
-@app.post("/api/chat")
-def chat(req: ChatRequest):
-    return answer_for(req.question)
