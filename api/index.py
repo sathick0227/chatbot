@@ -1,34 +1,46 @@
+import os, re, time, csv, json, asyncio
+from io import StringIO
+
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from rapidfuzz import fuzz, process
-import json, os, re, time, csv, asyncio
-from io import StringIO
-import httpx
+
 
 app = FastAPI(title="Portfolio Chatbot", redirect_slashes=False)
 
+# -----------------------------
+# ✅ CORS
+# -----------------------------
+ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "https://portfolio-latest-henna.vercel.app",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://portfolio-latest-henna.vercel.app",
-    ],
-    allow_credentials=False,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False,   # keep False unless using cookies
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ✅ Load data.json from repo root (still used for fallback fuzzy matching)
+# -----------------------------
+# ✅ Load local fallback data.json
+# -----------------------------
 BASE_DIR = os.path.dirname(__file__)
 DATA_PATH = os.path.join(BASE_DIR, "..", "data.json")
 
 with open(DATA_PATH, "r", encoding="utf-8") as f:
     data = json.load(f)
 
-questions = data["questions"]
-answers = data["answers"]
+questions = data.get("questions", [])
+answers = data.get("answers", [])
 
+# -----------------------------
+# ✅ Language answers
+# -----------------------------
 LANGUAGE_ANSWERS = {
     "english": (
         "Yes. He communicates professionally in English and uses it daily in his work "
@@ -52,6 +64,9 @@ LANGUAGE_ANSWERS = {
     ),
 }
 
+# -----------------------------
+# ✅ Skill answers
+# -----------------------------
 SKILL_ANSWERS = {
     "react": "Yes. He has strong React/Next.js experience (5+ years), building scalable web apps including banking and enterprise systems.",
     "next": "Yes. He has experience with Next.js for production apps, focusing on performance, routing, SSR/SSG, and scalable UI architecture.",
@@ -69,23 +84,37 @@ SKILL_ANSWERS = {
     ),
 }
 
+# -----------------------------
+# ✅ Intent rules (FIXED indexes)
+# based on your latest data.json
+# -----------------------------
+# data.json indexes:
+# 0 Hi
+# 1 Hello
+# 2 hey
+# 3 tell about him?
+# 4 what about him?
+# 5 Who is Sathick?
+# 9 How can I contact you?
+# 25 salary question answer index is 25
+
 INTENT_RULES = [
-    # ✅ greetings -> your data.json index 0 = Hi response
+    # greetings -> index 0
     {"patterns": [r"^\s*(hi|hello|hey)\s*$", r"\bhi\b", r"\bhello\b", r"\bhey\b"], "answer_index": 0},
 
-    # ✅ who / intro -> now index 3 (tell about him?)
+    # intro/who -> index 3 (tell about him?), also cover who is sathick
     {"patterns": [r"\btell about him\b", r"\bwhat about him\b", r"\bwho is sathick\b", r"\bwho are you\b", r"\bintroduce\b"], "answer_index": 3},
 
-    # ✅ contact -> now index 9
+    # contact -> index 9
     {"patterns": [r"\bcontact\b", r"\bemail\b", r"\bphone\b", r"\breach\b", r"\bget in touch\b", r"\bhow can i contact\b"], "answer_index": 9},
 
-    # ✅ salary -> now index 25
+    # salary -> index 25
     {"patterns": [r"\bsalary\b", r"\bpackage\b", r"\bctc\b", r"\bexpected salary\b"], "answer_index": 25},
 
-    # ✅ banking
+    # banking (skill answer)
     {"patterns": [r"\bbank\b", r"\bbanking\b", r"\bmashreq\b", r"\bdigital banking\b"], "skill_key": "banking"},
 
-    # ✅ skills
+    # skills
     {"patterns": [r"\breact native\b", r"\brn\b"], "skill_key": "react_native"},
     {"patterns": [r"\bnext\.?js\b", r"\bnextjs\b", r"\bnext\b"], "skill_key": "next"},
     {"patterns": [r"\breact\.?js\b", r"\breactjs\b", r"\breact\b"], "skill_key": "react"},
@@ -96,7 +125,7 @@ INTENT_RULES = [
     {"patterns": [r"\bxss\b", r"\bsql injection\b", r"\bowasp\b", r"\bcsp\b", r"\bsecurity\b"], "skill_key": "security"},
     {"patterns": [r"\bperformance\b", r"\boptimi[sz]e\b", r"\blazy\b", r"\bcaching\b", r"\bprofiling\b"], "skill_key": "performance"},
 
-    # ✅ language rules
+    # languages
     {"patterns": [r"\blanguages?\b", r"\bwhat languages\b", r"\bspoken languages\b", r"\bwhich language\b"], "language_key": "languages_overall"},
     {"patterns": [r"\benglish\b", r"\bcan he speak english\b", r"\benglish fluency\b"], "language_key": "english"},
     {"patterns": [r"\btamil\b", r"\bnative language\b", r"\bmother tongue\b"], "language_key": "tamil"},
@@ -104,10 +133,12 @@ INTENT_RULES = [
     {"patterns": [r"\barabic\b", r"\bcan he speak arabic\b", r"\blearning arabic\b"], "language_key": "arabic"},
 ]
 
+
 def norm(t: str) -> str:
     t = (t or "").lower().strip()
     t = re.sub(r"\s+", " ", t)
     return t
+
 
 def detect_intent(q: str):
     q = norm(q)
@@ -116,36 +147,33 @@ def detect_intent(q: str):
             return rule
     return None
 
+
 class ChatRequest(BaseModel):
     question: str
+
 
 # -----------------------------
 # ✅ Google Sheet Read (CSV) + Cache
 # -----------------------------
-SHEET_CSV_URL = os.getenv("SHEET_CSV_URL", "https://docs.google.com/spreadsheets/d/e/2PACX-1vTl9SBA-l0OKroq0oeGRnSBP9t_BNl7SudbD1ijurCMkh4_uZtklOhaa1cwvEJTRPCsYCvHxkTDUUxN/pub?gid=0&single=true&output=csv").strip()
+SHEET_CSV_URL = os.getenv("SHEET_CSV_URL", "").strip()
 CACHE_TTL = int(os.getenv("SHEET_CACHE_TTL", "300"))
 
-_sheet_cache = {
-    "ts": 0,
-    "questions": [],
-    "answers": [],
-}
+_sheet_cache = {"ts": 0, "questions": [], "answers": []}
+
 
 async def load_sheet_if_needed(force: bool = False):
     now = int(time.time())
     if not force and (now - _sheet_cache["ts"] < CACHE_TTL) and _sheet_cache["questions"]:
         return
-
     if not SHEET_CSV_URL:
         return
 
-    async with httpx.AsyncClient(timeout=8) as client:
+    async with httpx.AsyncClient(timeout=10) as client:
         r = await client.get(SHEET_CSV_URL)
         r.raise_for_status()
 
     rows = list(csv.DictReader(StringIO(r.text)))
     q_list, a_list = [], []
-
     for row in rows:
         q = (row.get("question") or "").strip()
         a = (row.get("answer") or "").strip()
@@ -156,6 +184,7 @@ async def load_sheet_if_needed(force: bool = False):
     _sheet_cache["ts"] = now
     _sheet_cache["questions"] = q_list
     _sheet_cache["answers"] = a_list
+
 
 def answer_from_sheet(user_q: str):
     qs = _sheet_cache["questions"]
@@ -168,23 +197,40 @@ def answer_from_sheet(user_q: str):
         return ans[best[2]]
     return None
 
-# -----------------------------
-# ✅ Missed Question Logger (Apps Script Webhook)
-# -----------------------------
-MISSED_WEBHOOK_URL = os.getenv("MISSED_WEBHOOK_URL", "").strip()
 
-async def log_missed_question(question: str, source: str = "vercel-api"):
-    if not MISSED_WEBHOOK_URL:
+# -----------------------------
+# ✅ Logger to Apps Script (logs + missed + telegram from Apps Script)
+# -----------------------------
+LOG_WEBHOOK_URL = os.getenv("LOG_WEBHOOK_URL", "").strip()
+
+
+async def send_log(question: str, request: Request, type_: str):
+    """
+    type_ = "log" or "missed"
+    Apps Script decides:
+      - always write to LOGS
+      - if missed -> write to MISSED + Telegram
+    """
+    if not LOG_WEBHOOK_URL:
         return
-    payload = {"question": question, "source": source}
+
+    payload = {
+        "question": question,
+        "type": type_,
+        "source": "portfolio",
+        "ip": request.client.host if request.client else "",
+        "ua": request.headers.get("user-agent", ""),
+    }
+
     try:
         async with httpx.AsyncClient(timeout=3) as client:
-            await client.post(MISSED_WEBHOOK_URL, json=payload)
+            await client.post(LOG_WEBHOOK_URL, json=payload)
     except Exception:
         pass
 
+
 # -----------------------------
-# ✅ API routes (Vercel)
+# ✅ Routes
 # -----------------------------
 @app.api_route("/", methods=["GET", "POST", "OPTIONS"])
 @app.api_route("/api", methods=["GET", "POST", "OPTIONS"])
@@ -193,18 +239,21 @@ async def root(request: Request):
         return "OK"
 
     if request.method == "GET":
-        return {"status": "ok", "usage": "POST JSON {question:'...'} to /api"}
+        return {"status": "ok", "usage": "POST /api with JSON {question: '...'}"}
 
     body = await request.json()
     q = (body.get("question") or "").strip()
     if not q:
         return {"error": "Missing question"}
 
-    # 1) Intent detection first
+    # ✅ log every request (async)
+    asyncio.create_task(send_log(q, request, "log"))
+
+    # 1) Intent
     rule = detect_intent(q)
     if rule:
         if "language_key" in rule:
-            return {"answer": LANGUAGE_ANSWERS[rule["language_key"]]}
+            return {"answer": LANGUAGE_ANSWERS.get(rule["language_key"], "He can communicate in multiple languages.")}
 
         if "skill_key" in rule:
             return {"answer": SKILL_ANSWERS.get(rule["skill_key"], "Yes, he has experience in that area.")}
@@ -213,21 +262,20 @@ async def root(request: Request):
         if idx is not None and 0 <= idx < len(answers):
             return {"answer": answers[idx]}
 
-    # 2) Google Sheet FAQ (no redeploy updates)
+    # 2) Sheet FAQ (live)
     try:
         await load_sheet_if_needed()
-        ans = answer_from_sheet(q)
-        if ans:
-            return {"answer": ans}
+        sheet_ans = answer_from_sheet(q)
+        if sheet_ans:
+            return {"answer": sheet_ans}
     except Exception:
-        # ignore sheet errors
         pass
 
-    # 3) Local fallback fuzzy match (data.json)
+    # 3) Local fallback fuzzy match
     best = process.extractOne(q, questions, scorer=fuzz.WRatio)
     if best and best[1] >= 78:
         return {"answer": answers[best[2]]}
 
-    # 4) Missed question -> log it (async, doesn't slow response)
-    asyncio.create_task(log_missed_question(q, source="portfolio"))
+    # 4) Missed
+    asyncio.create_task(send_log(q, request, "missed"))
     return {"answer": "I don't have an answer for that yet."}
