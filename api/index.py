@@ -112,9 +112,7 @@ def home():
     return {"status": "ok", "hint": "POST /api/chat with JSON {question: '...'}"}
 
 # ✅ Support both: /chat and /api/chat
-@app.post("/chat")
-def home():
-    return {"status": "ok", "hint": "POST /api/chat1 with JSON {question: '...'}"}
+
 @app.post("/chat")
 @app.post("/api/chat")
 def chat(req: ChatRequest):
