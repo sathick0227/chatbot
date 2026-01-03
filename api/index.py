@@ -8,7 +8,7 @@ app = FastAPI(title="Portfolio Chatbot")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # in prod put your domain
+    allow_origins=["http://localhost:3000","https://portfolio-latest-henna.vercel.app/"],  # in prod put your domain
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
