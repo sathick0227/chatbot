@@ -46,29 +46,33 @@ SKILL_ANSWERS = {
 }
 
 INTENT_RULES = [
-    # greetings (your data.json has Hi/Hello/hey at indexes 0/1/2)
+    # ✅ greetings
     {"patterns": [r"^\s*(hi|hello|hey)\s*$", r"\bhi\b", r"\bhello\b", r"\bhey\b"], "answer_index": 0},
 
-    # contact (your contact is index 7)
-    {"patterns": [r"\bcontact\b", r"\bemail\b", r"\bphone\b", r"\breach\b", r"\bget in touch\b"], "answer_index": 7},
+    # ✅ who / intro (tell about him, what about him, who is sathick)
+    {"patterns": [r"\btell about him\b", r"\bwhat about him\b", r"\bwho is sathick\b", r"\bwho are you\b", r"\bintroduce\b"], "answer_index": 3},
 
-    # salary (your salary is index 23)
-    {"patterns": [r"\bsalary\b", r"\bpackage\b", r"\bctc\b", r"\bexpected salary\b"], "answer_index": 23},
+    # ✅ contact (now index 9)
+    {"patterns": [r"\bcontact\b", r"\bemail\b", r"\bphone\b", r"\breach\b", r"\bget in touch\b"], "answer_index": 9},
 
-    # banking
+    # ✅ salary (now index 25)
+    {"patterns": [r"\bsalary\b", r"\bpackage\b", r"\bctc\b", r"\bexpected salary\b"], "answer_index": 25},
+
+    # ✅ banking (skill answer)
     {"patterns": [r"\bbank\b", r"\bbanking\b", r"\bmashreq\b", r"\bdigital banking\b"], "skill_key": "banking"},
 
-    # skills
+    # ✅ skills (skill answers)
     {"patterns": [r"\breact native\b", r"\brn\b"], "skill_key": "react_native"},
-    {"patterns": [r"\breact\b", r"\breactjs\b", r"\breact\.js\b"], "skill_key": "react"},
-    {"patterns": [r"\bnext\b", r"\bnextjs\b", r"\bnext\.js\b"], "skill_key": "next"},
-    {"patterns": [r"\bnode\b", r"\bnodejs\b", r"\bnode\.js\b", r"\bbackend\b", r"\bapi\b"], "skill_key": "node"},
+    {"patterns": [r"\bnext\.?js\b", r"\bnextjs\b", r"\bnext\b"], "skill_key": "next"},
+    {"patterns": [r"\breact\.?js\b", r"\breactjs\b", r"\breact\b"], "skill_key": "react"},
+    {"patterns": [r"\bnode\.?js\b", r"\bnodejs\b", r"\bnode\b", r"\bbackend\b", r"\bapi\b"], "skill_key": "node"},
     {"patterns": [r"\btypescript\b", r"\bts\b"], "skill_key": "typescript"},
     {"patterns": [r"\baws\b", r"\bec2\b", r"\bs3\b", r"\blambda\b", r"\bcloud\b"], "skill_key": "aws"},
     {"patterns": [r"\bdocker\b", r"\bci/cd\b", r"\bpipeline\b", r"\bdevops\b"], "skill_key": "devops"},
     {"patterns": [r"\bxss\b", r"\bsql injection\b", r"\bowasp\b", r"\bcsp\b", r"\bsecurity\b"], "skill_key": "security"},
     {"patterns": [r"\bperformance\b", r"\boptimi[sz]e\b", r"\blazy\b", r"\bcaching\b", r"\bprofiling\b"], "skill_key": "performance"},
 ]
+
 
 
 def norm(t: str) -> str:
