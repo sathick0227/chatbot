@@ -4,16 +4,18 @@ from pydantic import BaseModel
 from rapidfuzz import fuzz, process
 import json, os, re
 
-app = FastAPI(title="Portfolio Chatbot")
+app = FastAPI(title="Portfolio Chatbot", redirect_slashes=False)
 
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["https://portfolio-latest-henna.vercel.app"],
-#     allow_origin_regex=r"^http://localhost:\d+$",
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "https://portfolio-latest-henna.vercel.app",
+    ],
+    allow_credentials=False,   # keep False unless you use cookies
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # ✅ Load data.json from repo root
