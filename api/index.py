@@ -8,11 +8,13 @@ app = FastAPI(title="Portfolio Chatbot")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000","https://portfolio-latest-henna.vercel.app/"],  # in prod put your domain
+    allow_origins=["https://portfolio-latest-henna.vercel.app"],
+    allow_origin_regex=r"^http://localhost:\d+$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # ✅ Load data.json from repo root
 BASE_DIR = os.path.dirname(__file__)
