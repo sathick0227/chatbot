@@ -82,12 +82,6 @@ def detect_intent(q: str):
 class ChatRequest(BaseModel):
     question: str
 
-@app.get("/")
-def health():
-    return {"status": "ok", "usage": "POST /api with {question}"}
-
-
-
 
 @app.api_route("/", methods=["GET", "POST"])
 async def root(request: Request):
