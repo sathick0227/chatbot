@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from rapidfuzz import fuzz, process
@@ -82,15 +82,24 @@ def detect_intent(q: str):
 class ChatRequest(BaseModel):
     question: str
 
-# @app.get("/")
-# def health():
-#     return {"status": "ok", "usage": "POST /api/chat with {question}"}
+@app.get("/")
+def health():
+    return {"status": "ok", "usage": "POST /api with {question}"}
 
-@app.post("/")
-def chat(req: ChatRequest):
-    q = req.question.strip()
 
-    # 1) Intent first
+
+
+@app.api_route("/", methods=["GET", "POST"])
+async def root(request: Request):
+    if request.method == "GET":
+        return {"status": "ok", "usage": "POST JSON {question:'...'} to this same URL"}
+
+    body = await request.json()
+    q = (body.get("question") or "").strip()
+    if not q:
+        return {"error": "Missing question"}
+
+    # ---- your existing logic ----
     rule = detect_intent(q)
     if rule:
         if "skill_key" in rule:
@@ -99,7 +108,6 @@ def chat(req: ChatRequest):
         if idx is not None and 0 <= idx < len(answers):
             return {"answer": answers[idx]}
 
-    # 2) Fuzzy fallback
     best = process.extractOne(q, questions, scorer=fuzz.WRatio)
     if best and best[1] >= 78:
         return {"answer": answers[best[2]]}
