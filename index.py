@@ -16,7 +16,7 @@ app.add_middleware(
 
 # ✅ Load data.json from repo root
 BASE_DIR = os.path.dirname(__file__)
-DATA_PATH = os.path.join(BASE_DIR, "..", "data.json")
+DATA_PATH = os.path.join(BASE_DIR, ".", "data.json")
 
 with open(DATA_PATH, "r", encoding="utf-8") as f:
     data = json.load(f)
