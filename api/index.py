@@ -84,16 +84,17 @@ class ChatRequest(BaseModel):
 
 
 @app.api_route("/", methods=["GET", "POST"])
+@app.api_route("/api", methods=["GET", "POST"])
 async def root(request: Request):
     if request.method == "GET":
-        return {"status": "ok", "usage": "POST JSON {question:'...'} to this same URL"}
+        return {"status": "ok", "usage": "POST JSON {question:'...'}"}
 
     body = await request.json()
     q = (body.get("question") or "").strip()
     if not q:
         return {"error": "Missing question"}
 
-    # ---- your existing logic ----
+    # your existing logic
     rule = detect_intent(q)
     if rule:
         if "skill_key" in rule:
@@ -106,4 +107,4 @@ async def root(request: Request):
     if best and best[1] >= 78:
         return {"answer": answers[best[2]]}
 
-    return {"answer": "I don't have an answer for that yet. Please ask about my profile, skills, projects, or contact details."}
+    return {"answer": "I don't have an answer for that yet."}
