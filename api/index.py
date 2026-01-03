@@ -28,6 +28,29 @@ with open(DATA_PATH, "r", encoding="utf-8") as f:
 questions = data["questions"]
 answers = data["answers"]
 
+LANGUAGE_ANSWERS = {
+    "english": (
+        "Yes. He communicates professionally in English and uses it daily in his work "
+        "for client meetings, documentation, and technical discussions."
+    ),
+    "tamil": (
+        "Yes. Tamil is his native language, and he communicates fluently in both "
+        "personal and professional contexts."
+    ),
+    "hindi": (
+        "He has basic conversational knowledge of Hindi and is continuously improving "
+        "his speaking skills."
+    ),
+     "arabic": (
+        "He is actively learning Arabic and continuously improving his proficiency."
+        "for professional and daily communication"
+    ),
+    "languages_overall": (
+        "He is fluent in Tamil, professional in English, conversational in Hindi,"
+        "and currently learning Arabic."
+    )
+}
+
 SKILL_ANSWERS = {
     "react": "Yes. He has strong React/Next.js experience (5+ years), building scalable web apps including banking and enterprise systems.",
     "next": "Yes. He has experience with Next.js for production apps, focusing on performance, routing, SSR/SSG, and scalable UI architecture.",
@@ -71,6 +94,51 @@ INTENT_RULES = [
     {"patterns": [r"\bdocker\b", r"\bci/cd\b", r"\bpipeline\b", r"\bdevops\b"], "skill_key": "devops"},
     {"patterns": [r"\bxss\b", r"\bsql injection\b", r"\bowasp\b", r"\bcsp\b", r"\bsecurity\b"], "skill_key": "security"},
     {"patterns": [r"\bperformance\b", r"\boptimi[sz]e\b", r"\blazy\b", r"\bcaching\b", r"\bprofiling\b"], "skill_key": "performance"},
+      {
+        "patterns": [
+            r"\blanguages?\b",
+            r"\bwhat languages\b",
+            r"\bspoken languages\b",
+            r"\bwhich language\b"
+        ],
+        "language_key": "languages_overall"
+    },
+
+    # ✅ English
+    {
+        "patterns": [
+            r"\benglish\b",
+            r"\bcan he speak english\b",
+            r"\benglish fluency\b"
+        ],
+        "language_key": "english"
+    },
+
+    # ✅ Tamil
+    {
+        "patterns": [
+            r"\btamil\b",
+            r"\bnative language\b",
+            r"\bmother tongue\b"
+        ],
+        "language_key": "tamil"
+    },
+
+    # ✅ Hindi
+    {
+        "patterns": [
+            r"\bhindi\b",
+            r"\bcan he speak hindi\b"
+        ],
+        "language_key": "hindi"
+    },
+     {
+        "patterns": [
+            r"\barabic\b",
+            r"\bcan he speak arabic\b"
+        ],
+        "language_key": "arabic"
+    },
 ]
 
 
@@ -105,8 +173,13 @@ async def root(request: Request):
     # your existing logic
     rule = detect_intent(q)
     if rule:
+          
+        if "language_key" in rule:
+            return {"answer": LANGUAGE_ANSWERS[rule["language_key"]]}
+        
         if "skill_key" in rule:
             return {"answer": SKILL_ANSWERS.get(rule["skill_key"], "Yes, he has experience in that area.")}
+    
         idx = rule.get("answer_index")
         if idx is not None and 0 <= idx < len(answers):
             return {"answer": answers[idx]}
