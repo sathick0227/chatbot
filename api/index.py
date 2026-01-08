@@ -2,7 +2,7 @@ import os, re, time, csv, json, asyncio
 from io import StringIO
 
 import httpx
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from rapidfuzz import fuzz, process
@@ -79,42 +79,22 @@ SKILL_ANSWERS = {
     "performance": "He optimizes performance via code splitting, lazy loading, caching, list virtualization, and profiling tools.",
     "banking": (
         "Yes. He has strong banking domain experience in Dubai, including work on "
-        "large-scale digital banking platforms at Mashreq Bank with focus on secure UI, "
+        "large-scale digital banking platforms with focus on secure UI, "
         "API integrations, performance, and enterprise-grade standards."
     ),
 }
 
 # -----------------------------
 # ✅ Intent rules (FIXED indexes)
-# based on your latest data.json
 # -----------------------------
-# data.json indexes:
-# 0 Hi
-# 1 Hello
-# 2 hey
-# 3 tell about him?
-# 4 what about him?
-# 5 Who is Sathick?
-# 9 How can I contact you?
-# 25 salary question answer index is 25
-
 INTENT_RULES = [
-    # greetings -> index 0
     {"patterns": [r"^\s*(hi|hello|hey)\s*$", r"\bhi\b", r"\bhello\b", r"\bhey\b"], "answer_index": 0},
-
-    # intro/who -> index 3 (tell about him?), also cover who is sathick
     {"patterns": [r"\btell about him\b", r"\bwhat about him\b", r"\bwho is sathick\b", r"\bwho are you\b", r"\bintroduce\b"], "answer_index": 3},
-
-    # contact -> index 9
     {"patterns": [r"\bcontact\b", r"\bemail\b", r"\bphone\b", r"\breach\b", r"\bget in touch\b", r"\bhow can i contact\b"], "answer_index": 9},
-
-    # salary -> index 25
     {"patterns": [r"\bsalary\b", r"\bpackage\b", r"\bctc\b", r"\bexpected salary\b"], "answer_index": 25},
 
-    # banking (skill answer)
     {"patterns": [r"\bbank\b", r"\bbanking\b", r"\bmashreq\b", r"\bdigital banking\b"], "skill_key": "banking"},
 
-    # skills
     {"patterns": [r"\breact native\b", r"\brn\b"], "skill_key": "react_native"},
     {"patterns": [r"\bnext\.?js\b", r"\bnextjs\b", r"\bnext\b"], "skill_key": "next"},
     {"patterns": [r"\breact\.?js\b", r"\breactjs\b", r"\breact\b"], "skill_key": "react"},
@@ -125,7 +105,6 @@ INTENT_RULES = [
     {"patterns": [r"\bxss\b", r"\bsql injection\b", r"\bowasp\b", r"\bcsp\b", r"\bsecurity\b"], "skill_key": "security"},
     {"patterns": [r"\bperformance\b", r"\boptimi[sz]e\b", r"\blazy\b", r"\bcaching\b", r"\bprofiling\b"], "skill_key": "performance"},
 
-    # languages
     {"patterns": [r"\blanguages?\b", r"\bwhat languages\b", r"\bspoken languages\b", r"\bwhich language\b"], "language_key": "languages_overall"},
     {"patterns": [r"\benglish\b", r"\bcan he speak english\b", r"\benglish fluency\b"], "language_key": "english"},
     {"patterns": [r"\btamil\b", r"\bnative language\b", r"\bmother tongue\b"], "language_key": "tamil"},
@@ -158,32 +137,106 @@ class ChatRequest(BaseModel):
 SHEET_CSV_URL = os.getenv("SHEET_CSV_URL", "").strip()
 CACHE_TTL = int(os.getenv("SHEET_CACHE_TTL", "300"))
 
-_sheet_cache = {"ts": 0, "questions": [], "answers": []}
+_sheet_cache = {"ts": 0, "questions": [], "answers": [], "meta": {}}
+
+
+def _normalize_headers(fieldnames):
+    if not fieldnames:
+        return []
+    return [re.sub(r"\s+", " ", (h or "").strip().lower()) for h in fieldnames]
 
 
 async def load_sheet_if_needed(force: bool = False):
+    """
+    Loads Google Sheet CSV into _sheet_cache.
+    Fixes:
+      ✅ follow redirects (Google Sheets often returns 302)
+      ✅ detect HTML (means not public / wrong URL)
+      ✅ accept flexible headers: question/answer (case + spaces)
+      ✅ keep meta for debugging
+    """
     now = int(time.time())
+
     if not force and (now - _sheet_cache["ts"] < CACHE_TTL) and _sheet_cache["questions"]:
         return
+
+    _sheet_cache["meta"] = {
+        "sheet_url_set": bool(SHEET_CSV_URL),
+        "last_error": "",
+        "content_type": "",
+        "status_code": None,
+        "row_count": 0,
+        "headers": [],
+        "loaded_at": now,
+    }
+
     if not SHEET_CSV_URL:
+        _sheet_cache["meta"]["last_error"] = "SHEET_CSV_URL is empty. Set env var on server."
         return
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.get(SHEET_CSV_URL)
-        r.raise_for_status()
+    try:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+            r = await client.get(SHEET_CSV_URL)
+            _sheet_cache["meta"]["status_code"] = r.status_code
+            _sheet_cache["meta"]["content_type"] = (r.headers.get("content-type") or "").lower()
+            r.raise_for_status()
 
-    rows = list(csv.DictReader(StringIO(r.text)))
-    q_list, a_list = [], []
-    for row in rows:
-        q = (row.get("question") or "").strip()
-        a = (row.get("answer") or "").strip()
-        if q and a:
-            q_list.append(q)
-            a_list.append(a)
+        # If sheet is not public, Google often returns HTML
+        if "text/html" in _sheet_cache["meta"]["content_type"]:
+            _sheet_cache["meta"]["last_error"] = (
+                "Got HTML instead of CSV. Make the sheet public (Anyone with link: Viewer) "
+                "and ensure the URL is a CSV export link."
+            )
+            return
 
-    _sheet_cache["ts"] = now
-    _sheet_cache["questions"] = q_list
-    _sheet_cache["answers"] = a_list
+        reader = csv.DictReader(StringIO(r.text))
+        headers = _normalize_headers(reader.fieldnames)
+        _sheet_cache["meta"]["headers"] = headers
+
+        # Map flexible header names
+        # Accept: question, questions, q | answer, answers, a
+        q_key = None
+        a_key = None
+
+        # Build original->normalized mapping
+        original_fields = reader.fieldnames or []
+        norm_map = {orig: re.sub(r"\s+", " ", (orig or "").strip().lower()) for orig in original_fields}
+
+        # Find question column
+        for orig, n in norm_map.items():
+            if n in ("question", "questions", "q"):
+                q_key = orig
+                break
+
+        # Find answer column
+        for orig, n in norm_map.items():
+            if n in ("answer", "answers", "a"):
+                a_key = orig
+                break
+
+        if not q_key or not a_key:
+            _sheet_cache["meta"]["last_error"] = (
+                f"CSV headers must include question/answer columns. Found: {original_fields}"
+            )
+            return
+
+        q_list, a_list = [], []
+        for row in reader:
+            q = (row.get(q_key) or "").strip()
+            a = (row.get(a_key) or "").strip()
+            if q and a:
+                q_list.append(q)
+                a_list.append(a)
+
+        _sheet_cache["ts"] = now
+        _sheet_cache["questions"] = q_list
+        _sheet_cache["answers"] = a_list
+        _sheet_cache["meta"]["row_count"] = len(q_list)
+
+    except Exception as e:
+        _sheet_cache["meta"]["last_error"] = str(e)
+        # do not raise; keep fallback working
+        return
 
 
 def answer_from_sheet(user_q: str):
@@ -205,12 +258,6 @@ LOG_WEBHOOK_URL = os.getenv("LOG_WEBHOOK_URL", "").strip()
 
 
 async def send_log(question: str, request: Request, type_: str):
-    """
-    type_ = "log" or "missed"
-    Apps Script decides:
-      - always write to LOGS
-      - if missed -> write to MISSED + Telegram
-    """
     if not LOG_WEBHOOK_URL:
         return
 
@@ -227,6 +274,20 @@ async def send_log(question: str, request: Request, type_: str):
             await client.post(LOG_WEBHOOK_URL, json=payload)
     except Exception:
         pass
+
+
+# -----------------------------
+# ✅ Debug endpoints (IMPORTANT)
+# -----------------------------
+@app.get("/debug/sheet")
+async def debug_sheet():
+    # Force load to see real status
+    await load_sheet_if_needed(force=True)
+    return {
+        "meta": _sheet_cache.get("meta", {}),
+        "cache_count": len(_sheet_cache["questions"]),
+        "sample_questions": _sheet_cache["questions"][:5],
+    }
 
 
 # -----------------------------
@@ -269,6 +330,7 @@ async def root(request: Request):
         if sheet_ans:
             return {"answer": sheet_ans}
     except Exception:
+        # keep fallback working
         pass
 
     # 3) Local fallback fuzzy match
